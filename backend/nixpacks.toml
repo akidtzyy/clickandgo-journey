@@ -1,0 +1,12 @@
+[providers.php]
+# Memasang ekstensi PHP yang diperlukan
+extensions = ["pdo_mysql", "bcmath", "openssl", "mbstring", "xml", "zip", "curl"]
+
+[phases.build]
+# Menjalankan optimasi dump-autoload composer dan konfigurasi cache Laravel saat build time
+cmds = [
+  "composer install --no-dev --optimize-autoloader --non-interactive",
+  "php artisan config:cache",
+  "php artisan route:cache",
+  "php artisan view:cache"
+]
