@@ -22,6 +22,8 @@ return [
 
     'allowed_origins' => [
         env('FRONTEND_URL', 'https://clickandgojourney.com'),
+        'https://clickandgojourney.com',
+        'https://www.clickandgojourney.com'
     ],
 
     'allowed_origins_patterns' => [],
