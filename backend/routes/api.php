@@ -55,6 +55,7 @@ Route::prefix('v1')->group(function () {
         Route::get('my-bookings',            [BookingController::class, 'myBookings']);
         Route::post('payments/snap-token',   [PaymentController::class, 'snapToken']);
         Route::post('payments/verify-status',[PaymentController::class, 'verifyStatus']);
+        Route::post('payments/verify-and-sync', [PaymentController::class, 'verifyAndSync']);
     });
 
     // -----------------------------------------------------------------------

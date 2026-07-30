@@ -31,7 +31,6 @@ dist-ssr
 backend/vendor/
 backend/node_modules/
 backend/.env
-backend/.env.backup
 backend/storage/*.key
 backend/public/hot
 backend/public/storage

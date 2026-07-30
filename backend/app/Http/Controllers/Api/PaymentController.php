@@ -125,4 +125,81 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Gagal memverifikasi status pembayaran.'], 500);
         }
     }
+    /**
+     * POST /api/v1/payments/verify-and-sync
+     * Protected: query Midtrans for real-time status AND immediately update the booking DB record.
+     * Used by frontend polling after pelunasan payment.
+     */
+    public function verifyAndSync(Request $request): JsonResponse
+    {
+        $request->validate([
+            'booking_id' => ['required', 'integer', 'exists:bookings,id'],
+        ]);
+
+        $booking = Booking::with('customer')->findOrFail($request->integer('booking_id'));
+
+        // Determine which order_id to check: prefer final_order_id for DP bookings with pelunasan
+        $orderIdToCheck = $booking->final_order_id ?: $booking->order_id;
+
+        if (!$orderIdToCheck) {
+            return response()->json(['message' => 'No transaction found for this booking.'], 404);
+        }
+
+        try {
+            $status = $this->paymentService->verifyTransactionStatus($orderIdToCheck);
+            $transactionStatus = $status['transaction_status'] ?? null;
+            $fraudStatus = $status['fraud_status'] ?? null;
+            $isFinalPayment = str_contains($orderIdToCheck, '-FINAL-');
+
+            $isSettled = in_array($transactionStatus, ['settlement', 'capture'])
+                && ($fraudStatus === null || $fraudStatus === 'accept');
+
+            $updated = false;
+
+            if ($isSettled) {
+                if ($isFinalPayment || $booking->payment_type === 'FULL') {
+                    // Final payment or full payment settled
+                    if ($booking->payment_status !== 'paid') {
+                        $booking->update([
+                            'payment_status'    => 'paid',
+                            'amount_paid'       => $booking->total_price,
+                            'remaining_balance' => 0,
+                            'paid_at'           => now(),
+                        ]);
+                        // Also update customer stats
+                        if ($booking->customer) {
+                            $booking->customer->recordPayment((float) ($status['gross_amount'] ?? 0));
+                        }
+                        $updated = true;
+                    }
+                } else {
+                    // DP initial payment settled — mark as partially paid
+                    if ($booking->payment_status !== 'partially_paid' && $booking->payment_status !== 'paid') {
+                        $dpAmount = ceil($booking->total_price / 2);
+                        $remaining = $booking->total_price - $dpAmount;
+                        $booking->update([
+                            'payment_status'    => 'partially_paid',
+                            'amount_paid'       => $dpAmount,
+                            'remaining_balance' => $remaining,
+                            'paid_at'           => now(),
+                        ]);
+                        if ($booking->customer) {
+                            $booking->customer->recordPayment((float) ($status['gross_amount'] ?? 0));
+                        }
+                        $updated = true;
+                    }
+                }
+            }
+
+            return response()->json([
+                'message'            => $updated ? 'Status pembayaran berhasil diperbarui.' : 'Status tidak berubah.',
+                'payment_status'     => $booking->fresh()->payment_status,
+                'transaction_status' => $transactionStatus,
+                'updated'            => $updated,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Verify-and-sync failed', ['error' => $e->getMessage(), 'booking_id' => $booking->id]);
+            return response()->json(['message' => 'Gagal memeriksa status pembayaran.'], 500);
+        }
+    }
 }
